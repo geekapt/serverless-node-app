@@ -1,0 +1,331 @@
+org: umesh229
+app: serverless-node-app
+service: serverless-node-app
+frameworkVersion: '4'
+
+# Define custom variables
+custom:
+  # S3 bucket name for frontend (must be globally unique)
+  s3Bucket: ${self:service}-frontend-${self:provider.stage}-${env:AWS_ACCOUNT_ID}
+  # CloudFront distribution settings
+  client:
+    bucketName: ${self:custom.s3Bucket}
+    distributionFolder: client/dist
+    region: ${self:provider.region}
+    # All origins are automatically allowed in dev, but you should restrict this in production
+    corsConfiguration:
+      CorsRules:
+        - AllowedHeaders: ["*"]
+          AllowedMethods: [GET, POST, PUT, DELETE, HEAD, OPTIONS]
+          AllowedOrigins: ["*"]
+          MaxAge: 3000
+
+provider:
+  name: aws
+  runtime: nodejs18.x
+  region: us-west-2
+  stage: ${opt:stage, 'dev'}
+  environment:
+    USERS_TABLE: ${self:service}-users-${self:provider.stage}
+    ITEMS_TABLE: ${self:service}-items-${self:provider.stage}
+    JWT_SECRET: ${env:JWT_SECRET, 'your-super-secret-jwt-key'}
+    NODE_ENV: ${self:provider.stage}
+    API_ENDPOINT: !Sub https://${self:custom.domainName || 'api.example.com'}
+  iam:
+    role:
+      statements:
+        - Effect: Allow
+          Action:
+            - dynamodb:Query
+            - dynamodb:Scan
+            - dynamodb:GetItem
+            - dynamodb:PutItem
+            - dynamodb:UpdateItem
+            - dynamodb:DeleteItem
+          Resource:
+            - !GetAtt UsersTable.Arn
+            - !GetAtt ItemsTable.Arn
+        # Allow Lambda to interact with S3
+        - Effect: Allow
+          Action:
+            - s3:PutObject
+            - s3:GetObject
+            - s3:ListBucket
+            - s3:DeleteObject
+            - s3:PutBucketPolicy
+            - s3:PutBucketWebsite
+          Resource:
+            - !Sub "arn:aws:s3:::${self:custom.s3Bucket}"
+            - !Sub "arn:aws:s3:::${self:custom.s3Bucket}/*"
+        # Allow CloudFront distribution creation
+        - Effect: Allow
+          Action:
+            - cloudfront:CreateInvalidation
+            - cloudfront:GetDistribution
+            - cloudfront:CreateDistribution
+            - cloudfront:UpdateDistribution
+            - cloudfront:DeleteDistribution
+          Resource: "*"
+
+functions:
+  # Health Check
+  healthCheck:
+    handler: src/handlers/health.handler
+    events:
+      - httpApi:
+          path: /health
+          method: get
+
+  # Auth Endpoints
+  registerUser:
+    handler: src/handlers/auth/register.handler
+    events:
+      - httpApi:
+          path: /auth/register
+          method: post
+
+  loginUser:
+    handler: src/handlers/auth/login.handler
+    events:
+      - httpApi:
+          path: /auth/login
+          method: post
+
+  # Items Endpoints
+  createItem:
+    handler: src/handlers/items/create.handler
+    events:
+      - httpApi:
+          path: /items
+          method: post
+          authorizer: jwtAuthorizer
+
+  listItems:
+    handler: src/handlers/items/list.handler
+    events:
+      - httpApi:
+          path: /items
+          method: get
+          authorizer: jwtAuthorizer
+
+  updateItem:
+    handler: src/handlers/items/update.handler
+    events:
+      - httpApi:
+          path: /items/{id}
+          method: put
+          authorizer: jwtAuthorizer
+
+  deleteItem:
+    handler: src/handlers/items/delete.handler
+    events:
+      - httpApi:
+          path: /items/{id}
+          method: delete
+          authorizer: jwtAuthorizer
+
+  # Profile Endpoints
+  getProfile:
+    handler: src/handlers/profile/get.handler
+    events:
+      - httpApi:
+          path: /profile
+          method: get
+          authorizer: jwtAuthorizer
+
+  updateProfile:
+    handler: src/handlers/profile/update.handler
+    events:
+      - httpApi:
+          path: /profile
+          method: put
+          authorizer: jwtAuthorizer
+
+resources:
+  Resources:
+    # S3 Bucket for Frontend
+    WebAppBucket:
+      Type: AWS::S3::Bucket
+      Properties:
+        BucketName: ${self:custom.s3Bucket}
+        AccessControl: PublicRead
+        WebsiteConfiguration:
+          IndexDocument: index.html
+          ErrorDocument: index.html
+        CorsConfiguration:
+          CorsRules:
+            - AllowedHeaders: ["*"]
+              AllowedMethods: [GET, POST, PUT, DELETE, HEAD, OPTIONS]
+              AllowedOrigins: ["*"]
+              MaxAge: 3000
+
+    # CloudFront Distribution
+    WebAppCloudFrontDistribution:
+      Type: AWS::CloudFront::Distribution
+      Properties:
+        DistributionConfig:
+          DefaultRootObject: index.html
+          Enabled: true
+          PriceClass: PriceClass_100
+          HttpVersion: http2
+          Origins:
+            - DomainName: !GetAtt WebAppBucket.DomainName
+              Id: WebAppBucketOrigin
+              CustomOriginConfig:
+                OriginProtocolPolicy: http-only
+                HTTPPort: 80
+                HTTPSPort: 443
+                OriginSSLProtocols: [TLSv1.2]
+          DefaultCacheBehavior:
+            AllowedMethods:
+              - GET
+              - HEAD
+              - OPTIONS
+            CachedMethods:
+              - GET
+              - HEAD
+              - OPTIONS
+            TargetOriginId: WebAppBucketOrigin
+            ForwardedValues:
+              QueryString: 'false'
+              Cookies:
+                Forward: none
+            ViewerProtocolPolicy: redirect-to-https
+          CustomErrorResponses:
+            - ErrorCode: 403
+              ResponseCode: 200
+              ResponsePagePath: /index.html
+            - ErrorCode: 404
+              ResponseCode: 200
+              ResponsePagePath: /index.html
+
+    # S3 Bucket Policy
+    WebAppBucketPolicy:
+      Type: AWS::S3::BucketPolicy
+      Properties:
+        Bucket: !Ref WebAppBucket
+        PolicyDocument:
+          Statement:
+            - Effect: Allow
+              Principal: "*"
+              Action: "s3:GetObject"
+              Resource: !Sub "arn:aws:s3:::${self:custom.s3Bucket}/*"
+
+    # Outputs
+    WebAppURL:
+      Description: URL of the website
+      Value: !GetAtt WebAppBucket.WebsiteURL
+      
+    CloudFrontURL:
+      Description: CloudFront Distribution Domain Name
+      Value: !GetAtt WebAppCloudFrontDistribution.DomainName
+
+    # Users Table
+    UsersTable:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: ${self:provider.environment.USERS_TABLE}
+        BillingMode: PAY_PER_REQUEST
+        AttributeDefinitions:
+          - AttributeName: id
+            AttributeType: S
+          - AttributeName: email
+            AttributeType: S
+        KeySchema:
+          - AttributeName: id
+            KeyType: HASH
+        GlobalSecondaryIndexes:
+          - IndexName: emailIndex
+            KeySchema:
+              - AttributeName: email
+                KeyType: HASH
+            Projection:
+              ProjectionType: ALL
+
+    # Items Table
+    ItemsTable:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: ${self:provider.environment.ITEMS_TABLE}
+        BillingMode: PAY_PER_REQUEST
+        AttributeDefinitions:
+          - AttributeName: id
+            AttributeType: S
+          - AttributeName: userId
+            AttributeType: S
+        KeySchema:
+          - AttributeName: id
+            KeyType: HASH
+        GlobalSecondaryIndexes:
+          - IndexName: userIdIndex
+            KeySchema:
+              - AttributeName: userId
+                KeyType: HASH
+            Projection:
+              ProjectionType: ALL
+
+    # S3 Bucket for Frontend
+    WebAppBucket:
+      Type: AWS::S3::Bucket
+      Properties:
+        BucketName: ${self:service}-webapp-${self:provider.stage}
+        AccessControl: PublicRead
+        WebsiteConfiguration:
+          IndexDocument: index.html
+          ErrorDocument: index.html
+          CorsConfiguration:
+            CorsRules:
+              - AllowedHeaders: ["*"]
+                AllowedMethods: [GET, POST, PUT, DELETE, OPTIONS]
+                AllowedOrigins: ["*"]
+                ExposedHeaders: []
+                MaxAge: 3000
+
+    WebAppBucketPolicy:
+      Type: AWS::S3::BucketPolicy
+      Properties:
+        Bucket: !Ref WebAppBucket
+        PolicyDocument:
+          Statement:
+            - Effect: Allow
+              Principal: '*'
+              Action:
+                - s3:GetObject
+              Resource: !Join
+                - ''
+                - - 'arn:aws:s3:::'
+                  - !Ref WebAppBucket
+                  - '/*'
+
+plugins:
+  - serverless-offline
+  - serverless-s3-sync
+  - serverless-finch
+  - serverless-cloudfront-invalidate
+
+custom:
+  client:
+    bucketName: ${self:custom.s3Bucket}
+    distributionFolder: frontend/build
+    distributionId: !GetAtt WebAppCloudFrontDistribution.Id
+    
+  s3Sync:
+    - bucketName: ${self:custom.s3Bucket}
+      localDir: frontend/build
+      acl: public-read
+      deleteRemoved: true
+      params:
+        - index.html:
+            CacheControl: 'no-cache, no-store, must-revalidate'
+        - "**/*.js":
+            CacheControl: 'public, max-age=31536000, immutable'
+        - "**/*.css":
+            CacheControl: 'public, max-age=31536000, immutable'
+        - "**/*.png":
+            CacheControl: 'public, max-age=31536000, immutable'
+        - "**/*.jpg":
+            CacheControl: 'public, max-age=31536000, immutable'
+        - "**/*.svg":
+            CacheControl: 'public, max-age=31536000, immutable'
+        - "**/*.json":
+            CacheControl: 'public, max-age=31536000, immutable'
