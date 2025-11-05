@@ -88,7 +88,128 @@ provider:
             - cloudfront:DeleteDistribution
           Resource: "*"
 
-# ... rest of your functions and resources sections ...
+resources:
+  Resources:
+    # S3 Bucket for Frontend
+    WebAppBucket:
+      Type: AWS::S3::Bucket
+      Properties:
+        BucketName: ${self:custom.s3Bucket}
+        AccessControl: PublicRead
+        WebsiteConfiguration:
+          IndexDocument: index.html
+          ErrorDocument: index.html
+        CorsConfiguration:
+          CorsRules:
+            - AllowedHeaders: ["*"]
+              AllowedMethods: [GET, POST, PUT, DELETE, HEAD, OPTIONS]
+              AllowedOrigins: ["*"]
+              MaxAge: 3000
+
+    # CloudFront Distribution
+    WebAppCloudFrontDistribution:
+      Type: AWS::CloudFront::Distribution
+      Properties:
+        DistributionConfig:
+          DefaultRootObject: index.html
+          Enabled: true
+          PriceClass: PriceClass_100
+          HttpVersion: http2
+          Origins:
+            - DomainName: !GetAtt WebAppBucket.DomainName
+              Id: WebAppBucketOrigin
+              CustomOriginConfig:
+                OriginProtocolPolicy: http-only
+                HTTPPort: 80
+                HTTPSPort: 443
+                OriginSSLProtocols: [TLSv1.2]
+          DefaultCacheBehavior:
+            AllowedMethods:
+              - GET
+              - HEAD
+              - OPTIONS
+            CachedMethods:
+              - GET
+              - HEAD
+              - OPTIONS
+            TargetOriginId: WebAppBucketOrigin
+            ForwardedValues:
+              QueryString: 'false'
+              Cookies:
+                Forward: none
+            ViewerProtocolPolicy: redirect-to-https
+          CustomErrorResponses:
+            - ErrorCode: 403
+              ResponseCode: 200
+              ResponsePagePath: /index.html
+            - ErrorCode: 404
+              ResponseCode: 200
+              ResponsePagePath: /index.html
+
+    # S3 Bucket Policy
+    WebAppBucketPolicy:
+      Type: AWS::S3::BucketPolicy
+      Properties:
+        Bucket: !Ref WebAppBucket
+        PolicyDocument:
+          Statement:
+            - Effect: Allow
+              Principal: "*"
+              Action: "s3:GetObject"
+              Resource: !Sub "arn:aws:s3:::${self:custom.s3Bucket}/*"
+
+    # Outputs
+    WebAppURL:
+      Description: URL of the website
+      Value: !GetAtt WebAppBucket.WebsiteURL
+      
+    CloudFrontURL:
+      Description: CloudFront Distribution Domain Name
+      Value: !GetAtt WebAppCloudFrontDistribution.DomainName
+
+    # Users Table
+    UsersTable:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: ${self:provider.environment.USERS_TABLE}
+        BillingMode: PAY_PER_REQUEST
+        AttributeDefinitions:
+          - AttributeName: id
+            AttributeType: S
+          - AttributeName: email
+            AttributeType: S
+        KeySchema:
+          - AttributeName: id
+            KeyType: HASH
+        GlobalSecondaryIndexes:
+          - IndexName: emailIndex
+            KeySchema:
+              - AttributeName: email
+                KeyType: HASH
+            Projection:
+              ProjectionType: ALL
+
+    # Items Table
+    ItemsTable:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: ${self:provider.environment.ITEMS_TABLE}
+        BillingMode: PAY_PER_REQUEST
+        AttributeDefinitions:
+          - AttributeName: id
+            AttributeType: S
+          - AttributeName: userId
+            AttributeType: S
+        KeySchema:
+          - AttributeName: id
+            KeyType: HASH
+        GlobalSecondaryIndexes:
+          - IndexName: userIdIndex
+            KeySchema:
+              - AttributeName: userId
+                KeyType: HASH
+            Projection:
+              ProjectionType: ALL
 
 plugins:
   - serverless-offline
