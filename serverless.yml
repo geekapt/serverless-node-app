@@ -95,25 +95,36 @@ provider:
 
 resources:
   Resources:
-    # S3 Bucket for Frontend
+    # S3 Bucket for Frontend (Private)
     WebAppBucket:
       Type: AWS::S3::Bucket
       Properties:
         BucketName: ${self:custom.s3Bucket}
-        WebsiteConfiguration:
-          IndexDocument: index.html
-          ErrorDocument: index.html
+        PublicAccessBlockConfiguration:
+          BlockPublicAcls: true
+          BlockPublicPolicy: true
+          IgnorePublicAcls: true
+          RestrictPublicBuckets: true
+        OwnershipControls:
+          Rules:
+            - ObjectOwnership: BucketOwnerEnforced
         CorsConfiguration:
           CorsRules:
             - AllowedMethods:
                 - GET
-                - PUT
-                - POST
-                - DELETE
                 - HEAD
-              AllowedOrigins: ["*"]
-              AllowedHeaders: ["*"]
+              AllowedOrigins:
+                - "*"
+              AllowedHeaders:
+                - "*"
               MaxAge: 3000
+
+    # CloudFront Origin Access Identity
+    CloudFrontOAI:
+      Type: AWS::CloudFront::CloudFrontOriginAccessIdentity
+      Properties:
+        CloudFrontOriginAccessIdentityConfig:
+          Comment: "OAI for ${self:service}-${self:provider.stage}"
 
     # CloudFront Distribution
     WebAppCloudFrontDistribution:
@@ -125,14 +136,13 @@ resources:
           PriceClass: PriceClass_100
           HttpVersion: http2
           Origins:
-            - DomainName: !GetAtt WebAppBucket.DomainName
+            - DomainName: !GetAtt WebAppBucket.RegionalDomainName
               Id: WebAppBucketOrigin
-              CustomOriginConfig:
-                OriginProtocolPolicy: http-only
-                HTTPPort: 80
-                HTTPSPort: 443
-                OriginSSLProtocols: [TLSv1.2]
+              S3OriginConfig:
+                OriginAccessIdentity: !Sub "origin-access-identity/cloudfront/${CloudFrontOAI}"
           DefaultCacheBehavior:
+            TargetOriginId: WebAppBucketOrigin
+            ViewerProtocolPolicy: redirect-to-https
             AllowedMethods:
               - GET
               - HEAD
@@ -141,12 +151,10 @@ resources:
               - GET
               - HEAD
               - OPTIONS
-            TargetOriginId: WebAppBucketOrigin
             ForwardedValues:
-              QueryString: 'false'
+              QueryString: false
               Cookies:
                 Forward: none
-            ViewerProtocolPolicy: redirect-to-https
           CustomErrorResponses:
             - ErrorCode: 403
               ResponseCode: 200
@@ -155,7 +163,7 @@ resources:
               ResponseCode: 200
               ResponsePagePath: /index.html
 
-    # S3 Bucket Policy
+    # S3 Bucket Policy for CloudFront OAI
     WebAppBucketPolicy:
       Type: AWS::S3::BucketPolicy
       Properties:
@@ -163,7 +171,8 @@ resources:
         PolicyDocument:
           Statement:
             - Effect: Allow
-              Principal: "*"
+              Principal:
+                CanonicalUser: !GetAtt CloudFrontOAI.S3CanonicalUserId
               Action: "s3:GetObject"
               Resource: !Sub "arn:aws:s3:::${self:custom.s3Bucket}/*"
 
