@@ -95,14 +95,12 @@ provider:
 
 resources:
   Resources:
-    # S3 Bucket for Frontend with Static Website Hosting
+    # Private S3 Bucket for Frontend Assets
     WebAppBucket:
       Type: AWS::S3::Bucket
       Properties:
         BucketName: ${self:custom.s3Bucket}
-        WebsiteConfiguration:
-          IndexDocument: index.html
-          ErrorDocument: index.html
+        AccessControl: Private
         CorsConfiguration:
           CorsRules:
             - AllowedMethods:
@@ -111,18 +109,6 @@ resources:
               AllowedOrigins: ["*"]
               AllowedHeaders: ["*"]
               MaxAge: 3000
-
-    # S3 Bucket Policy for Public Read Access
-    WebAppBucketPolicy:
-      Type: AWS::S3::BucketPolicy
-      Properties:
-        Bucket: !Ref WebAppBucket
-        PolicyDocument:
-          Statement:
-            - Effect: Allow
-              Principal: "*"
-              Action: "s3:GetObject"
-              Resource: !Sub "arn:aws:s3:::${self:custom.s3Bucket}/*"
 
 
     # Users Table
@@ -170,11 +156,11 @@ resources:
               ProjectionType: ALL
 
 outputs:
-  webAppURL:
-    description: URL of the website
-    value: !GetAtt WebAppBucket.WebsiteURL
+  webAppBucketName:
+    description: Name of the S3 bucket for frontend assets
+    value: !Ref WebAppBucket
     Export:
-      Name: ${self:service}-${self:provider.stage}-WebAppURL
+      Name: ${self:service}-${self:provider.stage}-WebAppBucketName
 
 plugins:
   - serverless-offline
