@@ -51,7 +51,7 @@ provider:
     ITEMS_TABLE: ${self:service}-items-${self:provider.stage}
     JWT_SECRET: ${env:JWT_SECRET, 'your-super-secret-jwt-key'}
     NODE_ENV: ${self:provider.stage}
-    API_ENDPOINT: !Sub https://${self:custom.domainName || 'api.example.com'}
+    # API_ENDPOINT: !Sub https://${self:custom.domainName || 'api.example.com'}
   iam:
     role:
       statements:
