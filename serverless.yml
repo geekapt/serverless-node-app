@@ -16,7 +16,12 @@ custom:
     corsConfiguration:
       CorsRules:
         - AllowedHeaders: ["*"]
-          AllowedMethods: ["GET", "PUT", "POST", "DELETE", "HEAD"]
+          AllowedMethods:
+            - GET
+            - PUT
+            - POST
+            - DELETE
+            - HEAD
           AllowedOrigins: ["*"]
           MaxAge: 3000
   # S3 Sync configuration
@@ -101,10 +106,15 @@ resources:
           ErrorDocument: index.html
         CorsConfiguration:
           CorsRules:
-            - AllowedHeaders: ["*"]
-              AllowedMethods: ["GET", "PUT", "POST", "DELETE", "HEAD"]
+            - AllowedMethods:
+                - GET
+                - PUT
+                - POST
+                - DELETE
+                - HEAD
               AllowedOrigins: ["*"]
-              MaxAgeSeconds: 3000
+              AllowedHeaders: ["*"]
+              MaxAge: 3000
 
     # CloudFront Distribution
     WebAppCloudFrontDistribution:
