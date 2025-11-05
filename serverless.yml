@@ -12,13 +12,13 @@ custom:
     bucketName: ${self:custom.s3Bucket}
     distributionFolder: frontend/build
     region: ${self:provider.region}
-    # All origins are automatically allowed in dev, but you should restrict this in production
+    # CORS configuration for S3
     corsConfiguration:
       CorsRules:
         - AllowedHeaders: ["*"]
-          AllowedMethods: [GET, POST, PUT, DELETE, HEAD, OPTIONS]
+          AllowedMethods: ["GET", "PUT", "POST", "DELETE", "HEAD"]
           AllowedOrigins: ["*"]
-          MaxAge: 3000
+          MaxAgeSeconds: 3000
   # S3 Sync configuration
   s3Sync:
     - bucketName: ${self:custom.s3Bucket}
@@ -102,9 +102,9 @@ resources:
         CorsConfiguration:
           CorsRules:
             - AllowedHeaders: ["*"]
-              AllowedMethods: [GET, POST, PUT, DELETE, HEAD, OPTIONS]
+              AllowedMethods: ["GET", "PUT", "POST", "DELETE", "HEAD"]
               AllowedOrigins: ["*"]
-              MaxAge: 3000
+              MaxAgeSeconds: 3000
 
     # CloudFront Distribution
     WebAppCloudFrontDistribution:
