@@ -18,7 +18,7 @@ custom:
         - AllowedHeaders: ["*"]
           AllowedMethods: ["GET", "PUT", "POST", "DELETE", "HEAD"]
           AllowedOrigins: ["*"]
-          MaxAgeSeconds: 3000
+          MaxAge: 3000
   # S3 Sync configuration
   s3Sync:
     - bucketName: ${self:custom.s3Bucket}
