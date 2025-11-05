@@ -158,7 +158,7 @@ resources:
               Action: "s3:GetObject"
               Resource: !Sub "arn:aws:s3:::${self:custom.s3Bucket}/*"
 
-    # Outputs
+  Outputs:
     WebAppURL:
       Description: URL of the website
       Value: !GetAtt WebAppBucket.WebsiteURL
