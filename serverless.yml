@@ -158,14 +158,6 @@ resources:
               Action: "s3:GetObject"
               Resource: !Sub "arn:aws:s3:::${self:custom.s3Bucket}/*"
 
-  Outputs:
-    WebAppURL:
-      Description: URL of the website
-      Value: !GetAtt WebAppBucket.WebsiteURL
-      
-    CloudFrontURL:
-      Description: CloudFront Distribution Domain Name
-      Value: !GetAtt WebAppCloudFrontDistribution.DomainName
 
     # Users Table
     UsersTable:
@@ -210,6 +202,14 @@ resources:
                 KeyType: HASH
             Projection:
               ProjectionType: ALL
+
+outputs:
+  webAppURL:
+    description: URL of the website
+    value: !GetAtt WebAppBucket.WebsiteURL
+  cloudFrontURL:
+    description: CloudFront Distribution Domain Name
+    value: !GetAtt WebAppCloudFrontDistribution.DomainName
 
 plugins:
   - serverless-offline
