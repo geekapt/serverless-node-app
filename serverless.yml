@@ -264,22 +264,6 @@ resources:
             Projection:
               ProjectionType: ALL
 
-    # S3 Bucket for Frontend
-    WebAppBucket:
-      Type: AWS::S3::Bucket
-      Properties:
-        BucketName: ${self:service}-webapp-${self:provider.stage}
-        AccessControl: PublicRead
-        WebsiteConfiguration:
-          IndexDocument: index.html
-          ErrorDocument: index.html
-          CorsConfiguration:
-            CorsRules:
-              - AllowedHeaders: ["*"]
-                AllowedMethods: [GET, POST, PUT, DELETE, OPTIONS]
-                AllowedOrigins: ["*"]
-                ExposedHeaders: []
-                MaxAge: 3000
 
     WebAppBucketPolicy:
       Type: AWS::S3::BucketPolicy
