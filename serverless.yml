@@ -28,7 +28,7 @@ custom:
   s3Sync:
     - bucketName: ${self:custom.s3Bucket}
       localDir: frontend/build
-      acl: public-read
+      acl: null  # Remove ACL
       deleteRemoved: true
       params:
         - index.html:
@@ -95,9 +95,21 @@ provider:
 
 resources:
   Resources:
-    # Private S3 Bucket for Frontend Assets
+    # S3 Bucket for Frontend Assets with public access
     WebAppBucket:
       Type: AWS::S3::Bucket
+      Properties:
+        PublicAccessBlockConfiguration:
+          BlockPublicAcls: false
+          IgnorePublicAcls: false
+          BlockPublicPolicy: false
+          RestrictPublicBuckets: false
+        OwnershipControls:
+          Rules:
+            - ObjectOwnership: BucketOwnerPreferred
+        WebsiteConfiguration:
+          IndexDocument: index.html
+          ErrorDocument: index.html
       Properties:
         BucketName: ${self:custom.s3Bucket}
         AccessControl: Private
