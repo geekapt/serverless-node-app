@@ -99,6 +99,8 @@ resources:
     WebAppBucket:
       Type: AWS::S3::Bucket
       Properties:
+        BucketName: ${self:custom.s3Bucket}
+        AccessControl: Private
         PublicAccessBlockConfiguration:
           BlockPublicAcls: false
           IgnorePublicAcls: false
@@ -110,9 +112,6 @@ resources:
         WebsiteConfiguration:
           IndexDocument: index.html
           ErrorDocument: index.html
-      Properties:
-        BucketName: ${self:custom.s3Bucket}
-        AccessControl: Private
         CorsConfiguration:
           CorsRules:
             - AllowedMethods:
