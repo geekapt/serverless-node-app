@@ -95,7 +95,7 @@ provider:
 
 resources:
   Resources:
-    # S3 Bucket for Frontend Assets with public access
+    # Private S3 Bucket for Frontend Assets
     WebAppBucket:
       Type: AWS::S3::Bucket
       DeletionPolicy: Retain
@@ -105,33 +105,71 @@ resources:
         OwnershipControls:
           Rules:
             - ObjectOwnership: BucketOwnerEnforced
-        WebsiteConfiguration:
-          IndexDocument: index.html
-          ErrorDocument: index.html
-        CorsConfiguration:
-          CorsRules:
-            - AllowedMethods:
-                - GET
-                - HEAD
-              AllowedOrigins: ["*"]
-              AllowedHeaders: ["*"]
-              MaxAge: 3000
-    
+
+    # CloudFront Origin Access Identity
+    CloudFrontOAI:
+      Type: AWS::CloudFront::CloudFrontOriginAccessIdentity
+      Properties:
+        CloudFrontOriginAccessIdentityConfig:
+          Comment: 'OAI for ${self:service}'
+
+    # S3 Bucket Policy to allow CloudFront access
     WebAppBucketPolicy:
       Type: AWS::S3::BucketPolicy
       Properties:
         Bucket: !Ref WebAppBucket
         PolicyDocument:
-          Version: '2012-10-17'
           Statement:
-            - Effect: Allow
-              Principal: '*'
-              Action: 's3:GetObject'
+            - Action: 's3:GetObject'
+              Effect: Allow
               Resource: !Join
                 - ''
                 - - 'arn:aws:s3:::'
                   - !Ref WebAppBucket
                   - '/*'
+              Principal:
+                CanonicalUser: !GetAtt CloudFrontOAI.S3CanonicalUserId
+
+    # CloudFront Distribution
+    WebAppDistribution:
+      Type: AWS::CloudFront::Distribution
+      Properties:
+        DistributionConfig:
+          DefaultRootObject: 'index.html'
+          Origins:
+            - DomainName: !GetAtt WebAppBucket.RegionalDomainName
+              Id: WebAppBucket
+              S3OriginConfig:
+                OriginAccessIdentity: !Join
+                  - ''
+                  - - 'origin-access-identity/cloudfront/'
+                    - !Ref CloudFrontOAI
+          Enabled: 'true'
+          DefaultCacheBehavior:
+            TargetOriginId: WebAppBucket
+            ViewerProtocolPolicy: 'redirect-to-https'
+            AllowedMethods:
+              - GET
+              - HEAD
+              - OPTIONS
+            CachedMethods:
+              - GET
+              - HEAD
+              - OPTIONS
+            ForwardedValues:
+              QueryString: 'false'
+              Cookies:
+                Forward: 'none'
+          PriceClass: PriceClass_100
+          CustomErrorResponses:
+            - ErrorCode: 403
+              ResponseCode: 200
+              ResponsePagePath: '/index.html'
+            - ErrorCode: 404
+              ResponseCode: 200
+              ResponsePagePath: '/index.html'
+          ViewerCertificate:
+            CloudFrontDefaultCertificate: true
 
 
     # Users Table
