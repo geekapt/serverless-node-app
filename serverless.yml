@@ -226,4 +226,4 @@ plugins:
   - serverless-offline
   - serverless-s3-sync
   - serverless-finch
-  - serverless-cloudfront-invalidate
+  # - serverless-cloudfront-invalidate
