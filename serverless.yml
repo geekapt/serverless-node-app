@@ -98,14 +98,10 @@ resources:
     # S3 Bucket for Frontend Assets with public access
     WebAppBucket:
       Type: AWS::S3::Bucket
+      DeletionPolicy: Retain
       Properties:
         BucketName: ${self:custom.s3Bucket}
-        AccessControl: Private
-        PublicAccessBlockConfiguration:
-          BlockPublicAcls: false
-          IgnorePublicAcls: false
-          BlockPublicPolicy: false
-          RestrictPublicBuckets: false
+        AccessControl: PublicRead
         OwnershipControls:
           Rules:
             - ObjectOwnership: BucketOwnerPreferred
