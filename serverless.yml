@@ -96,14 +96,14 @@ provider:
 resources:
   Resources:
     # Private S3 Bucket for Frontend Assets
-      WebAppBucket:
-        Type: AWS::S3::Bucket
-        DeletionPolicy: Retain
-        Properties:
-          AccessControl: Private
-          OwnershipControls:
-            Rules:
-              - ObjectOwnership: BucketOwnerEnforced
+    WebAppBucket:
+      Type: AWS::S3::Bucket
+      DeletionPolicy: Retain
+      Properties:
+        AccessControl: Private
+        OwnershipControls:
+          Rules:
+            - ObjectOwnership: BucketOwnerEnforced
 
     # CloudFront Origin Access Identity
     CloudFrontOAI:
