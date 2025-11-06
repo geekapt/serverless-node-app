@@ -101,10 +101,10 @@ resources:
       DeletionPolicy: Retain
       Properties:
         BucketName: ${self:custom.s3Bucket}
-        AccessControl: PublicRead
+        AccessControl: Private
         OwnershipControls:
           Rules:
-            - ObjectOwnership: BucketOwnerPreferred
+            - ObjectOwnership: BucketOwnerEnforced
         WebsiteConfiguration:
           IndexDocument: index.html
           ErrorDocument: index.html
@@ -116,6 +116,22 @@ resources:
               AllowedOrigins: ["*"]
               AllowedHeaders: ["*"]
               MaxAge: 3000
+    
+    WebAppBucketPolicy:
+      Type: AWS::S3::BucketPolicy
+      Properties:
+        Bucket: !Ref WebAppBucket
+        PolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Principal: '*'
+              Action: 's3:GetObject'
+              Resource: !Join
+                - ''
+                - - 'arn:aws:s3:::'
+                  - !Ref WebAppBucket
+                  - '/*'
 
 
     # Users Table
