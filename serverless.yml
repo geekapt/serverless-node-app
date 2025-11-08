@@ -51,12 +51,14 @@ provider:
   runtime: nodejs18.x
   region: us-east-2
   stage: ${opt:stage, 'dev'}
+  httpApi:
+    cors: true
   environment:
     USERS_TABLE: ${self:service}-users-${self:provider.stage}
     ITEMS_TABLE: ${self:service}-items-${self:provider.stage}
     JWT_SECRET: ${env:JWT_SECRET, 'your-super-secret-jwt-key'}
     NODE_ENV: ${self:provider.stage}
-    # API_ENDPOINT: !Sub https://${self:custom.domainName || 'api.example.com'}
+    API_ENDPOINT: !Sub https://${self:custom.domainName || '${self:provider.httpApi.id}.execute-api.${self:provider.region}.amazonaws.com/${self:provider.stage}'}
   iam:
     role:
       statements:
@@ -68,9 +70,14 @@ provider:
             - dynamodb:PutItem
             - dynamodb:UpdateItem
             - dynamodb:DeleteItem
+            - dynamodb:BatchGetItem
+            - dynamodb:BatchWriteItem
+            - dynamodb:DescribeTable
           Resource:
             - !GetAtt UsersTable.Arn
             - !GetAtt ItemsTable.Arn
+            - !Sub ${UsersTable.Arn}/index/*
+            - !Sub ${ItemsTable.Arn}/index/*
         # Allow Lambda to interact with S3
         - Effect: Allow
           Action:
@@ -169,6 +176,14 @@ resources:
               ResponsePagePath: '/index.html'
           ViewerCertificate:
             CloudFrontDefaultCertificate: true
+functions:
+  register:
+    handler: src/handlers/auth/register.handler
+    events:
+      - httpApi:
+          path: /register
+          method: post
+          cors: true
 
 
     # Users Table
@@ -178,15 +193,15 @@ resources:
         TableName: ${self:provider.environment.USERS_TABLE}
         BillingMode: PAY_PER_REQUEST
         AttributeDefinitions:
-          - AttributeName: id
+          - AttributeName: userId
             AttributeType: S
           - AttributeName: email
             AttributeType: S
         KeySchema:
-          - AttributeName: id
+          - AttributeName: userId
             KeyType: HASH
         GlobalSecondaryIndexes:
-          - IndexName: emailIndex
+          - IndexName: EmailIndex
             KeySchema:
               - AttributeName: email
                 KeyType: HASH
