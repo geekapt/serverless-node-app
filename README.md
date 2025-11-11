@@ -4,21 +4,8 @@ This is a three-tier serverless application built with React, AWS Lambda, and Dy
 
 ## Architecture Overview
 
-```
-┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
-│                 │     │                 │     │                 │
-│    Frontend     │────▶│    API Gateway  │────▶│    Lambda       │
-│  (React SPA)    │     │                 │     │    Functions    │
-│                 │     │                 │     │                 │
-└─────────────────┘     └─────────────────┘     └────────┬────────┘
-                                                         │
-                                                         ▼
-                                                ┌─────────────────┐
-                                                │                 │
-                                                │    DynamoDB     │
-                                                │                 │
-                                                └─────────────────┘
-```
+<img width="1157" height="729" alt="image" src="https://github.com/user-attachments/assets/fde4b6f7-c59a-41a3-a193-2ec059b366b9" />
+
 
 ## Prerequisites
 
