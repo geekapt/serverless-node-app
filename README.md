@@ -51,7 +51,7 @@ For better security, we'll create separate roles for different Lambda functions.
         "dynamodb:GetItem"
       ],
       "Resource": [
-        "arn:aws:dynamodb:us-east-2:777880478972:table/ItemsTable"
+        "arn:aws:dynamodb:us-east-2:YOUR_ACCOUNT_ID:table/ItemsTable"
       ]
     }
   ]
@@ -70,7 +70,7 @@ For better security, we'll create separate roles for different Lambda functions.
         "dynamodb:UpdateItem",
         "dynamodb:DeleteItem"
       ],
-      "Resource": "arn:aws:dynamodb:us-east-2:777880478972:table/ItemsTable"
+      "Resource": "arn:aws:dynamodb:us-east-2:YOUR_ACCOUNT_ID:table/ItemsTable"
     }
   ]
 }
@@ -87,7 +87,7 @@ aws iam create-role \
 aws iam put-role-policy \
   --role-name Lambda_DynamoDB_View \
   --policy-name DynamoDBViewAccess \
-  --policy-document '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["dynamodb:Scan","dynamodb:Query","dynamodb:GetItem"],"Resource":["arn:aws:dynamodb:us-east-2:777880478972:table/ItemsTable"]}]}'
+  --policy-document '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["dynamodb:Scan","dynamodb:Query","dynamodb:GetItem"],"Resource":["arn:aws:dynamodb:us-east-2:YOUR_ACCOUNT_ID:table/ItemsTable"]}]}'
 
 # Create modify role (for insert, update, delete)
 aws iam create-role \
@@ -98,7 +98,7 @@ aws iam create-role \
 aws iam put-role-policy \
   --role-name Lambda_DynamoDB_Modify \
   --policy-name DynamoDBModifyAccess \
-  --policy-document '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["dynamodb:PutItem","dynamodb:UpdateItem","dynamodb:DeleteItem"],"Resource":"arn:aws:dynamodb:us-east-2:777880478972:table/ItemsTable"}]}'
+  --policy-document '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["dynamodb:PutItem","dynamodb:UpdateItem","dynamodb:DeleteItem"],"Resource":"arn:aws:dynamodb:us-east-2:YOUR_ACCOUNT_ID:table/ItemsTable"}]}'
 
 # Add S3 read permissions for Lambda
 aws iam put-role-policy \
@@ -219,7 +219,7 @@ For HTTPS and better performance, set up a CloudFront distribution:
       "Resource": "arn:aws:s3:::mydata-dashboard/*",
       "Condition": {
         "StringEquals": {
-          "AWS:SourceArn": "arn:aws:cloudfront::777880478972:distribution/E16ZEFG53OHVK1"
+          "AWS:SourceArn": "arn:aws:cloudfront::YOUR_ACCOUNT_ID:distribution/E16ZEFG53OHVK1"
         }
       }
     }
