@@ -1,11 +1,10 @@
 # Serverless Dashboard Application
 
-This is a three-tier serverless application built with React, AWS Lambda, and DynamoDB. The application provides a dashboard interface for managing items with full CRUD operations.
+This is a three-tier serverless application built with React, AWS Lambda, and DynamoDB. The application provides a dashboard interface for managing items with full CRUD operations. All resources are created in the `us-east-2` region.
 
 ## Architecture Overview
 
-<img width="1157" height="729" alt="image" src="https://github.com/user-attachments/assets/fde4b6f7-c59a-41a3-a193-2ec059b366b9" />
-
+<img width="1157" height="729" alt="Architecture Diagram" src="https://github.com/user-attachments/assets/fde4b6f7-c59a-41a3-a193-2ec059b366b9" />
 
 ## Prerequisites
 
@@ -19,30 +18,87 @@ This is a three-tier serverless application built with React, AWS Lambda, and Dy
 
 ### 1. IAM Roles and Policies
 
-#### Lambda Execution Role
-```bash
-# Create role
-aws iam create-role \
-  --role-name LambdaDynamoDBAccessRole \
-  --assume-role-policy-document '{
-    "Version": "2012-10-17",
-    "Statement": [{
+#### Lambda Execution Roles
+
+For better security, we'll create separate roles for different Lambda functions. However, you can also create a single role with all permissions if preferred.
+
+**Base Trust Policy (for all Lambda functions):**
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
       "Effect": "Allow",
       "Principal": {
-        "Service": ["lambda.amazonaws.com", "apigateway.amazonaws.com"]
+        "Service": "lambda.amazonaws.com"
       },
       "Action": "sts:AssumeRole"
-    }]
-  }'
+    }
+  ]
+}
+```
 
-# Attach policies
-aws iam attach-role-policy \
-  --role-name LambdaDynamoDBAccessRole \
-  --policy-arn arn:aws:iam::aws:policy/AmazonDynamoDBFullAccess
+**View Lambda Role (lambda_dynamodb_view):**
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": [
+        "dynamodb:Scan",
+        "dynamodb:Query",
+        "dynamodb:GetItem"
+      ],
+      "Resource": [
+        "arn:aws:dynamodb:us-east-2:777880478972:table/ItemsTable"
+      ]
+    }
+  ]
+}
+```
 
-aws iam attach-role-policy \
-  --role-name LambdaDynamoDBAccessRole \
-  --policy-arn arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+**Modify Lambda Role (lambda_dynamodb_insert, lambda_dynamodb_edit, lambda_dynamodb_delete):**
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": [
+        "dynamodb:PutItem",
+        "dynamodb:UpdateItem",
+        "dynamodb:DeleteItem"
+      ],
+      "Resource": "arn:aws:dynamodb:us-east-2:777880478972:table/ItemsTable"
+    }
+  ]
+}
+```
+
+**Create the IAM roles using AWS CLI:**
+```bash
+# Create view role
+aws iam create-role \
+  --role-name Lambda_DynamoDB_View \
+  --assume-role-policy-document '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"Service":"lambda.amazonaws.com"},"Action":"sts:AssumeRole"}]}'
+
+# Attach view policy
+aws iam put-role-policy \
+  --role-name Lambda_DynamoDB_View \
+  --policy-name DynamoDBViewAccess \
+  --policy-document '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["dynamodb:Scan","dynamodb:Query","dynamodb:GetItem"],"Resource":["arn:aws:dynamodb:us-east-2:777880478972:table/ItemsTable"]}]}'
+
+# Create modify role (for insert, update, delete)
+aws iam create-role \
+  --role-name Lambda_DynamoDB_Modify \
+  --assume-role-policy-document '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"Service":"lambda.amazonaws.com"},"Action":"sts:AssumeRole"}]}'
+
+# Attach modify policy
+aws iam put-role-policy \
+  --role-name Lambda_DynamoDB_Modify \
+  --policy-name DynamoDBModifyAccess \
+  --policy-document '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["dynamodb:PutItem","dynamodb:UpdateItem","dynamodb:DeleteItem"],"Resource":"arn:aws:dynamodb:us-east-2:777880478972:table/ItemsTable"}]}'
 
 # Add S3 read permissions for Lambda
 aws iam put-role-policy \
@@ -64,7 +120,120 @@ aws iam put-role-policy \
   }'
 ```
 
-### 2. DynamoDB Table
+### 2. API Gateway Setup
+
+Create an edge-optimized API Gateway with the following endpoints:
+- GET /items - List all items
+- POST /items - Create new item
+- PUT /items/{id} - Update item
+- DELETE /items/{id} - Delete item
+
+#### Enable CORS
+Make sure to enable CORS for all methods and deploy the API.
+
+### 3. Lambda Functions
+
+#### Testing Lambda Functions
+
+You can test the Lambda functions using the following test events:
+
+**Add Data:**
+```json
+{
+  "body": "{\"name\": \"Umesh\", \"description\": \"New data is added\"}"
+}
+```
+
+**Update Data:**
+```json
+{
+  "body": "{\"id\": \"ff7124ad-a109-4f7f-a44a-330cafd71f48\", \"updates\": {\"name\": \"Updated Widget\", \"description\": \"Updated description of the widget.\"}}"
+}
+```
+
+**Delete Data:**
+```json
+{
+  "body": "{\"id\": \"ff7124ad-a109-4f7f-a44a-330cafd71f48\"}"
+}
+```
+
+### 4. S3 Bucket for Frontend
+
+1. Create an S3 bucket (e.g., `mydata-dashboard`)
+2. Build the React frontend:
+   ```bash
+   cd frontend
+   npm run build
+   ```
+3. Upload the build files to S3:
+   ```bash
+   aws s3 sync build/ s3://mydata-dashboard --delete
+   ```
+4. Enable static website hosting:
+   - Go to S3 bucket → Properties → Static website hosting
+   - Select "Use this bucket to host a website"
+   - Set `index.html` as the Index document
+
+5. Add bucket policy (replace `mydata-dashboard` with your bucket name):
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "PublicReadGetObject",
+      "Effect": "Allow",
+      "Principal": "*",
+      "Action": [
+        "s3:GetObject"
+      ],
+      "Resource": [
+        "arn:aws:s3:::mydata-dashboard/*"
+      ]
+    }
+  ]
+}
+```
+
+### 5. CloudFront Distribution
+
+For HTTPS and better performance, set up a CloudFront distribution:
+
+1. Create a new CloudFront distribution
+2. Set the origin to your S3 bucket
+3. Select "Yes use OAI" for S3 bucket access
+4. Update the S3 bucket policy with the CloudFront OAI:
+
+```json
+{
+  "Version": "2008-10-17",
+  "Id": "PolicyForCloudFrontPrivateContent",
+  "Statement": [
+    {
+      "Sid": "AllowCloudFrontServicePrincipal",
+      "Effect": "Allow",
+      "Principal": {
+        "Service": "cloudfront.amazonaws.com"
+      },
+      "Action": "s3:GetObject",
+      "Resource": "arn:aws:s3:::mydata-dashboard/*",
+      "Condition": {
+        "StringEquals": {
+          "AWS:SourceArn": "arn:aws:cloudfront::777880478972:distribution/E16ZEFG53OHVK1"
+        }
+      }
+    }
+  ]
+}
+```
+
+5. In CloudFront distribution settings:
+   - Set "Default Root Object" to `index.html`
+   - (Optional) Configure WAF for additional security
+
+6. After deployment (takes 2-3 minutes), access your site via the CloudFront URL
+
+### 6. DynamoDB Table
 
 ```bash
 # Create table with GSI for querying

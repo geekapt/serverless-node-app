@@ -4,7 +4,7 @@ module.exports = function(app) {
   app.use(
     '/api',
     createProxyMiddleware({
-      target: 'https://j0d2n7xp58.execute-api.us-east-2.amazonaws.com',
+      target: 'https://uu90fn54h0.execute-api.us-east-2.amazonaws.com/new',
       changeOrigin: true,
       pathRewrite: {
         '^/api': '/new' // Rewrite path to match your API Gateway stage
