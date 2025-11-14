@@ -158,7 +158,56 @@ You can test the Lambda functions using the following test events:
 }
 ```
 
-### 4. S3 Bucket for Frontend
+### 4. API Gateway Configuration
+
+Before deploying the frontend, you need to configure the API Gateway URL and API key in your frontend code.
+
+#### Update API Configuration in React App
+
+1. **Update `frontend/src/App.js`**
+   Locate the API configuration section and update it with your API Gateway details:
+
+   ```javascript
+   // API Configuration
+   const API_CONFIG = {
+     BASE_URL: 'https://YOUR_API_ID.execute-api.us-east-2.amazonaws.com/YOUR_STAGE',
+     API_KEY: 'YOUR_API_KEY'
+   };
+   ```
+
+2. **Update `frontend/src/setupProxy.js`**
+   Configure the proxy settings to forward requests to your API Gateway:
+
+   ```javascript
+   module.exports = function(app) {
+     app.use(
+       '/api',
+       createProxyMiddleware({
+         target: 'https://YOUR_API_ID.execute-api.us-east-2.amazonaws.com/YOUR_STAGE',
+         changeOrigin: true,
+         pathRewrite: {
+           '^/api': '/YOUR_STAGE' // Update to match your API Gateway stage
+         },
+         headers: {
+           'x-api-key': 'YOUR_API_KEY',
+           'Accept': 'application/json',
+           'Content-Type': 'application/json'
+         },
+         secure: false, // Set to true in production
+         logLevel: 'debug'
+       })
+     );
+   };
+   ```
+
+3. **Rebuild the Frontend**
+   After making these changes, rebuild your React application:
+   ```bash
+   cd frontend
+   npm run build
+   ```
+
+### 5. S3 Bucket for Frontend
 
 1. Create an S3 bucket (e.g., `mydata-dashboard`)
 2. Build the React frontend:

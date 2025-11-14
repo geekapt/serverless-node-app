@@ -42,8 +42,8 @@ const theme = createTheme({
 
 // API Configuration
 const API_CONFIG = {
-  BASE_URL: 'https://uu90fn54h0.execute-api.us-east-2.amazonaws.com/new',
-  API_KEY: '1LhXxfDwRZ3xE8b6P4omjacqEDlQOCje95QXBTuJ'
+  BASE_URL: 'YOUR_URL',
+  API_KEY: 'YOUR_API_KEY'
 };
 
 // API endpoints - all using the root URL with different methods

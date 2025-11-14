@@ -4,13 +4,13 @@ module.exports = function(app) {
   app.use(
     '/api',
     createProxyMiddleware({
-      target: 'https://uu90fn54h0.execute-api.us-east-2.amazonaws.com/new',
+      target: 'YOUR_URL',
       changeOrigin: true,
       pathRewrite: {
         '^/api': '/new' // Rewrite path to match your API Gateway stage
       },
       headers: {
-        'x-api-key': '1LhXxfDwRZ3xE8b6P4omjacqEDlQOCje95QXBTuJ',
+        'x-api-key': 'YOUR_API_KEY',
         'Accept': 'application/json',
         'Content-Type': 'application/json'
       },
