@@ -1,0 +1,811 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Serverless Dashboard Application with React Frontend'
+
+Parameters:
+  ProjectName:
+    Type: String
+    Default: 'serverless-dashboard'
+    Description: 'Project name used for resource naming'
+  
+  Environment:
+    Type: String
+    Default: 'dev'
+    AllowedValues: ['dev', 'staging', 'prod']
+    Description: 'Deployment environment'
+
+Resources:
+  # IAM Role for Lambda
+  LambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: [lambda.amazonaws.com]
+            Action: ['sts:AssumeRole']
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: DynamoDBAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 'dynamodb:GetItem'
+                  - 'dynamodb:PutItem'
+                  - 'dynamodb:UpdateItem'
+                  - 'dynamodb:DeleteItem'
+                  - 'dynamodb:Scan'
+                  - 'dynamodb:Query'
+                  - 'dynamodb:DescribeTable'
+                Resource: 
+                  - !GetAtt ItemsTable.Arn
+                  - !Sub '${ItemsTable.Arn}/index/*'
+
+  # Lambda Permissions for API Gateway
+  ViewItemsPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !GetAtt ViewItemsFunction.Arn
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub 'arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${RestApi}/*/GET/'
+
+  CreateItemPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !GetAtt CreateItemFunction.Arn
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub 'arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${RestApi}/*/POST/'
+
+  UpdateItemPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !GetAtt UpdateItemFunction.Arn
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub 'arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${RestApi}/*/PUT/'
+
+  DeleteItemPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !GetAtt DeleteItemFunction.Arn
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub 'arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${RestApi}/*/DELETE/'
+
+  # API Gateway
+  RestApi:
+    Type: AWS::ApiGateway::RestApi
+    Properties:
+      Name: !Sub '${ProjectName}-${Environment}-api'
+      Description: 'API for serverless dashboard application'
+      EndpointConfiguration:
+        Types:
+          - EDGE
+
+  # Stage Cleanup Lambda Function
+  DeleteStageFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      Handler: index.handler
+      Role: !GetAtt DeleteStageFunctionRole.Arn
+      Runtime: python3.9
+      Timeout: 300
+      Code:
+        ZipFile: |
+          import json
+          import boto3
+          import cfnresponse
+          import time
+          import logging
+
+          logger = logging.getLogger()
+          logger.setLevel(logging.INFO)
+
+          def delete_stage(rest_api_id, stage_name):
+              apigateway = boto3.client('apigateway')
+              try:
+                  # First, check if the stage exists
+                  try:
+                      apigateway.get_stage(
+                          restApiId=rest_api_id,
+                          stageName=stage_name
+                      )
+                      logger.info(f"Stage {stage_name} exists, deleting...")
+                  except apigateway.exceptions.NotFoundException:
+                      logger.info(f"Stage {stage_name} does not exist, nothing to delete")
+                      return True
+
+                  # Delete the stage
+                  apigateway.delete_stage(
+                      restApiId=rest_api_id,
+                      stageName=stage_name
+                  )
+                  
+                  # Wait for the stage to be deleted
+                  max_attempts = 10
+                  while max_attempts > 0:
+                      try:
+                          apigateway.get_stage(
+                              restApiId=rest_api_id,
+                              stageName=stage_name
+                          )
+                          logger.info(f"Waiting for stage {stage_name} to be deleted...")
+                          time.sleep(5)
+                          max_attempts -= 1
+                      except apigateway.exceptions.NotFoundException:
+                          logger.info(f"Stage {stage_name} successfully deleted")
+                          return True
+                  
+                  logger.error(f"Timeout waiting for stage {stage_name} to be deleted")
+                  return False
+
+              except Exception as e:
+                  logger.error(f"Error deleting stage: {str(e)}")
+                  return False
+
+          def handler(event, context):
+              logger.info("Received event: " + json.dumps(event, indent=2))
+              
+              try:
+                  if event['RequestType'] in ['Create', 'Update']:
+                      rest_api_id = event['ResourceProperties']['RestApiId']
+                      stage_name = event['ResourceProperties']['StageName']
+                      
+                      if not delete_stage(rest_api_id, stage_name):
+                          raise Exception(f"Failed to delete stage {stage_name}")
+                  
+                  cfnresponse.send(event, context, cfnresponse.SUCCESS, {})
+              except Exception as e:
+                  logger.error("Error in handler: " + str(e))
+                  cfnresponse.send(event, context, cfnresponse.FAILED, {'Error': str(e)})
+
+  DeleteStageFunctionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: ApiGatewayAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 'apigateway:DELETE'
+                  - 'apigateway:GET'
+                  - 'apigateway:POST'
+                  - 'apigateway:PUT'
+                Resource: 
+                  - !Sub 'arn:aws:apigateway:${AWS::Region}::/restapis/${RestApi}'
+                  - !Sub 'arn:aws:apigateway:${AWS::Region}::/restapis/${RestApi}/*'
+                  - !Sub 'arn:aws:apigateway:${AWS::Region}::/restapis/*/stages/*'
+
+  DeleteStageCustomResource:
+    Type: Custom::DeleteStage
+    DependsOn: 
+      - RestApi
+      - DeleteStageFunction
+    Properties:
+      ServiceToken: !GetAtt DeleteStageFunction.Arn
+      RestApiId: !Ref RestApi
+      StageName: !Ref Environment
+      # Add a physical ID to prevent replacement issues
+      PhysicalResourceId: !Sub '${AWS::StackName}-${Environment}-stage-cleanup'
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
+    Metadata:
+      "AWS::CloudFormation::Designer":
+        "id": "delete-stage-resource"
+
+
+  # DynamoDB Table
+  ItemsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub '${ProjectName}-${Environment}-items'
+      AttributeDefinitions:
+        - AttributeName: id
+          AttributeType: S
+        - AttributeName: created_at
+          AttributeType: S
+      KeySchema:
+        - AttributeName: id
+          KeyType: HASH
+      GlobalSecondaryIndexes:
+        - IndexName: CreatedAtIndex
+          KeySchema:
+            - AttributeName: created_at
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL
+          ProvisionedThroughput:
+            ReadCapacityUnits: 5
+            WriteCapacityUnits: 5
+      ProvisionedThroughput:
+        ReadCapacityUnits: 5
+        WriteCapacityUnits: 5
+
+  # Lambda Functions
+
+  # View Items Lambda Function
+  ViewItemsFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub '${ProjectName}-${Environment}-view-items'
+      Handler: index.lambda_handler
+      Runtime: python3.9
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Environment:
+        Variables:
+          TABLE_NAME: !Sub '${ProjectName}-${Environment}-items'
+      Code:
+        ZipFile: |
+          import json
+          import os
+          import boto3
+          from boto3.dynamodb.conditions import Key
+          
+          # Initialize DynamoDB client
+          dynamodb = boto3.resource('dynamodb', region_name='us-east-2')
+          table_name = os.environ['TABLE_NAME']
+          table = dynamodb.Table(table_name)
+          print(f"Using DynamoDB table: {table_name}")
+          
+          def lambda_handler(event, context):
+              try:
+                  # Scan DynamoDB table
+                  response = table.scan()
+                  items = response.get('Items', [])
+                  
+                  return {
+                      'statusCode': 200,
+                      'headers': {
+                          'Content-Type': 'application/json',
+                          'Access-Control-Allow-Origin': '*',
+                          'Access-Control-Allow-Methods': 'GET,POST,PUT,DELETE,OPTIONS',
+                          'Access-Control-Allow-Headers': 'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token,X-Requested-With',
+                          'Access-Control-Allow-Credentials': 'true'
+                      },
+                      'body': json.dumps({
+                          'success': True,
+                          'data': items
+                      })
+                  }
+              except Exception as e:
+                  print(f'Error: {str(e)}')
+                  return {
+                      'statusCode': 500,
+                      'body': json.dumps({
+                          'success': False,
+                          'error': str(e),
+                          'table_name': os.environ.get('TABLE_NAME', 'Not found')
+                      })
+                  }
+                  return {
+                      'statusCode': 500,
+                      'headers': {
+                          'Content-Type': 'application/json',
+                          'Access-Control-Allow-Origin': '*'
+                      },
+                      'body': json.dumps({
+                          'success': False,
+                          'error': str(e)
+                      })
+                  }
+
+
+  CreateItemFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub '${ProjectName}-${Environment}-create-item'
+      Handler: index.lambda_handler
+      Runtime: python3.9
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Environment:
+        Variables:
+          TABLE_NAME: !Sub '${ProjectName}-${Environment}-items'
+      Code:
+        ZipFile: |
+          import json
+          import boto3
+          import uuid
+          import os
+          import datetime
+          
+          dynamodb = boto3.resource('dynamodb', region_name='us-east-2')
+          table = dynamodb.Table(os.environ['TABLE_NAME'])
+          
+          def lambda_handler(event, context):
+              try:
+                  # Parse the request body
+                  if isinstance(event['body'], str):
+                      body = json.loads(event['body'])
+                  else:
+                      body = event.get('body', {})
+                  
+                  # Extract data from the request
+                  name = body.get('name')
+                  description = body.get('description')
+                  
+                  # Generate a unique ID for the item
+                  item_id = str(uuid.uuid4())
+          
+                  # Create the item object
+                  item = {
+                      'id': item_id,
+                      'name': name,
+                      'description': description,
+                      'created_at': datetime.datetime.utcnow().isoformat()
+                  }
+          
+                  # Insert into DynamoDB
+                  response = table.put_item(Item=item)
+                  
+                  return {
+                      'statusCode': 200,
+                      'headers': {
+                          'Content-Type': 'application/json',
+                          'Access-Control-Allow-Origin': '*',
+                          'Access-Control-Allow-Methods': 'GET,POST,PUT,DELETE,OPTIONS',
+                          'Access-Control-Allow-Headers': 'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token,X-Requested-With',
+                          'Access-Control-Allow-Credentials': 'true'
+                      },
+                      'body': json.dumps({
+                          'success': True,
+                          'message': 'Item created successfully',
+                          'item': item
+                      })
+                  }
+          
+              except Exception as e:
+                  print('Error:', str(e))
+                  return {
+                      'statusCode': 500,
+                      'headers': {
+                          'Content-Type': 'application/json',
+                          'Access-Control-Allow-Origin': '*',
+                          'Access-Control-Allow-Methods': 'GET,POST,PUT,DELETE,OPTIONS',
+                          'Access-Control-Allow-Headers': 'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token,X-Requested-With',
+                          'Access-Control-Allow-Credentials': 'true'
+                      },
+                      'body': json.dumps({
+                          'success': False,
+                          'error': str(e)
+                      })
+                  }
+
+  # Update Item Lambda Function
+  UpdateItemFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub '${ProjectName}-${Environment}-update-item'
+      Handler: index.lambda_handler
+      Runtime: python3.9
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Environment:
+        Variables:
+          TABLE_NAME: !Sub '${ProjectName}-${Environment}-items'
+      Code:
+        ZipFile: |
+          import json
+          import os
+          import boto3
+          from boto3.dynamodb.conditions import Key
+          
+          # Initialize DynamoDB client
+          dynamodb = boto3.resource('dynamodb', region_name='us-east-2')
+          table_name = os.environ['TABLE_NAME']
+          table = dynamodb.Table(table_name)
+          print(f"Using DynamoDB table: {table_name}")
+          
+          def lambda_handler(event, context):
+              try:
+                  # Parse the request body
+                  if isinstance(event['body'], str):
+                      body = json.loads(event['body'])
+                  else:
+                      body = event['body']
+                      
+                  item_id = body.get('id')
+                  updates = body.get('updates', {})
+                  
+                  if not item_id:                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               
+                      return {
+                          'statusCode': 400,
+                          'headers': {
+                              'Content-Type': 'application/json',
+                              'Access-Control-Allow-Origin': '*',
+                              'Access-Control-Allow-Methods': 'GET,POST,PUT,DELETE,OPTIONS',
+                              'Access-Control-Allow-Headers': 'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token,X-Requested-With',
+                              'Access-Control-Allow-Credentials': 'true'
+                          },
+                          'body': json.dumps({
+                              'success': False,
+                              'error': 'Missing item ID'
+                          })
+                      }
+                  
+                  # Prepare update expression and attribute values
+                  update_expression = 'SET '
+                  expression_attribute_values = {}
+                  expression_attribute_names = {}
+                  
+                  for key, value in updates.items():
+                      # Handle reserved keywords by prefixing with '#'
+                      expr_key = f"#{key}"
+                      value_key = f":{key}"
+                      
+                      update_expression += f"{expr_key} = {value_key}, "
+                      expression_attribute_names[expr_key] = key
+                      expression_attribute_values[value_key] = value
+                  
+                  # Remove trailing comma and space
+                  update_expression = update_expression.rstrip(', ')
+                  
+                  # Update the item in DynamoDB
+                  response = table.update_item(
+                      Key={'id': item_id},
+                      UpdateExpression=update_expression,
+                      ExpressionAttributeNames=expression_attribute_names,
+                      ExpressionAttributeValues=expression_attribute_values,
+                      ReturnValues='ALL_NEW'
+                  )
+                  
+                  return {
+                      'statusCode': 200,
+                      'headers': {
+                          'Content-Type': 'application/json',
+                          'Access-Control-Allow-Origin': '*',
+                          'Access-Control-Allow-Methods': 'GET,POST,PUT,DELETE,OPTIONS',
+                          'Access-Control-Allow-Headers': 'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token,X-Requested-With',
+                          'Access-Control-Allow-Credentials': 'true'
+                      },
+                      'body': json.dumps({
+                          'success': True,
+                          'data': response.get('Attributes', {})
+                      })
+                  }
+              except Exception as e:
+                  print('Error:', str(e))
+                  return {
+                      'statusCode': 500,
+                      'headers': {
+                          'Content-Type': 'application/json',
+                          'Access-Control-Allow-Origin': '*',
+                          'Access-Control-Allow-Methods': 'GET,POST,PUT,DELETE,OPTIONS',
+                          'Access-Control-Allow-Headers': 'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token,X-Requested-With',
+                          'Access-Control-Allow-Credentials': 'true'
+                      },
+                      'body': json.dumps({
+                          'success': False,
+                          'error': str(e)
+                      })
+                  }
+
+  # Delete Item Lambda Function
+  DeleteItemFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub '${ProjectName}-${Environment}-delete-item'
+      Handler: index.lambda_handler
+      Runtime: python3.9
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Environment:
+        Variables:
+          TABLE_NAME: !Sub '${ProjectName}-${Environment}-items'
+      Code:
+        ZipFile: |
+          import json
+          import os
+          import boto3
+          
+          # Initialize DynamoDB client
+          dynamodb = boto3.resource('dynamodb', region_name='us-east-2')
+          table_name = os.environ['TABLE_NAME']
+          table = dynamodb.Table(table_name)
+          print(f"Using DynamoDB table: {table_name}")
+          
+          def lambda_handler(event, context):
+              # Log the entire event to see its structure
+              print("Received event:", json.dumps(event))
+          
+              try:
+                  # Check if 'body' is a stringified JSON and parse it if needed
+                  if isinstance(event['body'], str):
+                      body = json.loads(event['body'])  # Parse the stringified JSON body
+                  else:
+                      body = event.get('body', {})  # Use it directly if it's already an object
+                  
+                  # Log the parsed body to check the structure
+                  print("Parsed body:", body)
+          
+                  # Extract the item_id
+                  item_id = body.get('id')
+                  
+                  if not item_id:
+                      return {
+                          'statusCode': 400,
+                          'headers': {
+                              'Content-Type': 'application/json',
+                              'Access-Control-Allow-Origin': '*'
+                          },
+                          'body': json.dumps({
+                              'success': False,
+                              'error': 'Missing item ID'
+                          })
+                      }
+                  
+                  # Delete the item from DynamoDB
+                  table.delete_item(
+                      Key={'id': item_id}
+                  )
+                  
+                  return {
+                      'statusCode': 200,
+                      'headers': {
+                          'Content-Type': 'application/json',
+                          'Access-Control-Allow-Origin': '*',
+                          'Access-Control-Allow-Methods': 'GET,POST,PUT,DELETE,OPTIONS',
+                          'Access-Control-Allow-Headers': 'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token,X-Requested-With',
+                          'Access-Control-Allow-Credentials': 'true'
+                      },
+                      'body': json.dumps({
+                          'success': True,
+                          'message': 'Item deleted successfully'
+                      })
+                  }
+              except Exception as e:
+                  print(f'Error: {str(e)}')
+                  return {
+                      'statusCode': 500,
+                      'body': json.dumps({
+                          'success': False,
+                          'error': str(e),
+                          'table_name': os.environ.get('TABLE_NAME', 'Not found')
+                      })
+                  }
+                  return {
+                      'statusCode': 500,
+                      'headers': {
+                          'Content-Type': 'application/json',
+                          'Access-Control-Allow-Origin': '*'
+                      },
+                      'body': json.dumps({
+                          'success': False,
+                          'error': str(e)
+                      })
+                  }
+
+  # API Gateway
+  RestApi:
+    Type: AWS::ApiGateway::RestApi
+    Properties:
+      Name: !Sub '${ProjectName}-${Environment}-api'
+      Description: 'API for serverless dashboard application'
+      EndpointConfiguration:
+        Types:
+          - EDGE
+
+  # Request Validator
+  RequestValidator:
+    Type: AWS::ApiGateway::RequestValidator
+    Properties:
+      Name: 'BodyRequestValidator'
+      RestApiId: !Ref RestApi
+      ValidateRequestBody: true
+      ValidateRequestParameters: true
+
+  # OPTIONS Method for CORS Preflight
+  OptionsMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref RestApi
+      ResourceId: !GetAtt RestApi.RootResourceId
+      HttpMethod: OPTIONS
+      AuthorizationType: NONE
+      Integration:
+        Type: MOCK
+        IntegrationResponses:
+          - StatusCode: 200
+            ResponseParameters:
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token,X-Requested-With'"
+              method.response.header.Access-Control-Allow-Methods: "'OPTIONS,GET,POST,PUT,DELETE'"
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+        PassthroughBehavior: WHEN_NO_MATCH
+        RequestTemplates:
+          application/json: '{"statusCode": 200}'
+      MethodResponses:
+        - StatusCode: 200
+          ResponseParameters:
+            method.response.header.Access-Control-Allow-Headers: true
+            method.response.header.Access-Control-Allow-Methods: true
+            method.response.header.Access-Control-Allow-Origin: true
+
+  # GET Method
+  GetMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref RestApi
+      ResourceId: !GetAtt RestApi.RootResourceId
+      HttpMethod: GET
+      AuthorizationType: NONE
+      ApiKeyRequired: true
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${ViewItemsFunction.Arn}/invocations'
+      MethodResponses:
+        - StatusCode: 200
+          ResponseParameters:
+            method.response.header.Access-Control-Allow-Origin: true
+            method.response.header.Access-Control-Allow-Credentials: true
+
+  # POST Method
+  PostMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref RestApi
+      ResourceId: !GetAtt RestApi.RootResourceId
+      HttpMethod: POST
+      AuthorizationType: NONE
+      ApiKeyRequired: true
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${CreateItemFunction.Arn}/invocations'
+      MethodResponses:
+        - StatusCode: 200
+          ResponseParameters:
+            method.response.header.Access-Control-Allow-Origin: true
+
+  # PUT Method
+  PutMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref RestApi
+      ResourceId: !GetAtt RestApi.RootResourceId
+      HttpMethod: PUT
+      AuthorizationType: NONE
+      ApiKeyRequired: true
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${UpdateItemFunction.Arn}/invocations'
+      MethodResponses:
+        - StatusCode: 200
+          ResponseParameters:
+            method.response.header.Access-Control-Allow-Origin: true
+
+  # DELETE Method
+  DeleteMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref RestApi
+      ResourceId: !GetAtt RestApi.RootResourceId
+      HttpMethod: DELETE
+      AuthorizationType: NONE
+      ApiKeyRequired: true
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${DeleteItemFunction.Arn}/invocations'
+      MethodResponses:
+        - StatusCode: 200
+          ResponseParameters:
+            method.response.header.Access-Control-Allow-Origin: true
+
+  # API Deployment
+  ApiDeployment:
+    Type: AWS::ApiGateway::Deployment
+    DependsOn:
+      - GetMethod
+      - PostMethod
+      - PutMethod
+      - DeleteMethod
+      - OptionsMethod
+    Properties:
+      RestApiId: !Ref RestApi
+      # StageName: !Ref Environment
+      Description: !Sub 'Deployment for ${AWS::StackName}'
+
+  # Gateway Responses to add CORS headers on errors (4XX/5XX)
+  Default4xxGatewayResponse:
+    Type: AWS::ApiGateway::GatewayResponse
+    Properties:
+      RestApiId: !Ref RestApi
+      ResponseType: DEFAULT_4XX
+      ResponseParameters:
+        gatewayresponse.header.Access-Control-Allow-Origin: "'*'"
+        gatewayresponse.header.Access-Control-Allow-Methods: "'OPTIONS,GET,POST,PUT,DELETE'"
+        gatewayresponse.header.Access-Control-Allow-Headers: "'Content-Type,Authorization,X-Api-Key,X-Amz-Date,X-Amz-Security-Token,X-Requested-With'"
+
+  Default5xxGatewayResponse:
+    Type: AWS::ApiGateway::GatewayResponse
+    Properties:
+      RestApiId: !Ref RestApi
+      ResponseType: DEFAULT_5XX
+      ResponseParameters:
+        gatewayresponse.header.Access-Control-Allow-Origin: "'*'"
+        gatewayresponse.header.Access-Control-Allow-Methods: "'OPTIONS,GET,POST,PUT,DELETE'"
+        gatewayresponse.header.Access-Control-Allow-Headers: "'Content-Type,Authorization,X-Api-Key,X-Amz-Date,X-Amz-Security-Token,X-Requested-With'"
+
+  # API Stage
+  ApiStage:
+    Type: AWS::ApiGateway::Stage
+    DependsOn: 
+      - ApiDeployment
+      - DeleteStageCustomResource  # Explicit dependency
+    Properties:
+      DeploymentId: !Ref ApiDeployment
+      RestApiId: !Ref RestApi
+      StageName: !Ref Environment
+      Description: !Sub '${Environment} stage for ${ProjectName}'
+      MethodSettings:
+        - DataTraceEnabled: true
+          HttpMethod: '*'
+          LoggingLevel: INFO
+          ResourcePath: '/*'
+          MetricsEnabled: true
+
+  # API Key
+  ApiKey:
+    Type: AWS::ApiGateway::ApiKey
+    Properties:
+      Name: !Sub '${ProjectName}-${Environment}-key'
+      Enabled: true
+      GenerateDistinctId: true
+      Description: 'Auto generated API key'
+
+  ApiUsagePlan:
+    Type: AWS::ApiGateway::UsagePlan
+    DependsOn:
+    - ApiStage
+    Properties:
+      UsagePlanName: !Sub '${ProjectName}-${Environment}-usage-plan'
+      ApiStages:
+        - ApiId: !Ref RestApi
+          Stage: !Ref Environment
+  ApiUsagePlanKey:
+    Type: AWS::ApiGateway::UsagePlanKey
+    Properties:
+      KeyId: !Ref ApiKey
+      KeyType: API_KEY
+      UsagePlanId: !Ref ApiUsagePlan
+
+
+Outputs:
+  ViewFunctionArn:
+    Description: "View Lambda Function ARN"
+    Value: !GetAtt ViewItemsFunction.Arn
+  CreateFunctionArn:
+    Description: "Create Lambda Function ARN"
+    Value: !GetAtt CreateItemFunction.Arn
+  UpdateFunctionArn:
+    Description: "Update Lambda Function ARN"
+    Value: !GetAtt UpdateItemFunction.Arn
+  DeleteFunctionArn:
+    Description: "Delete Lambda Function ARN"
+    Value: !GetAtt DeleteItemFunction.Arn
+  ApiEndpoint:
+    Description: 'API Gateway endpoint URL'
+    Value: !Sub 'https://${RestApi}.execute-api.${AWS::Region}.amazonaws.com/${Environment}'
+  ApiKeyId:
+    Description: 'API Key ID'
+    Value: !Ref ApiKey
+  DynamoDBTableName:
+    Description: "DynamoDB Table Name"
+    Value: !Ref ItemsTable
+    Value: !Ref ItemsTable
